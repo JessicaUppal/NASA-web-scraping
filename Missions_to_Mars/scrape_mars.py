@@ -1,117 +1,104 @@
-##########################################################################
-# Dependencies
-import pandas as pd
+# Import dependancies 
 from splinter import Browser
-from bs4 import BeautifulSoup as bs
+from bs4 import BeautifulSoup as soup
+import pandas as pd
 from webdriver_manager.chrome import ChromeDriverManager
-from selenium import webdriver
-from flask import Flask, render_template, redirect
-from flask_pymongo import PyMongo
-##########################################################################
-# Set the chromedriver path
+
 executable_path = {'executable_path': ChromeDriverManager().install()}
 
-##########################################################################
-
 def scrape():
-    browser = Browser ('chrome', **executable_path, headless=True)
-    scraped_data = {}
-    news_data_output = mars_news(browser)
-    
-    scraped_data["mars_news"] = news_data_output[0]
-    scraped_data["mars_paragraph"] = news_data_output[1]
-    scraped_data["mars_image"] = mars_image(browser)
-    scraped_data["mars_facts"] = mars_facts()
-    scraped_data["mars_hemisphere"] = mars_hemis_data(browser)
-    
-    print(scraped_data)
+    # Path to driver
+    browser = Browser('chrome', **executable_path, headless=True)
+    news_title, news_paragraph = mars_news(browser)
 
-    browser.quit()    
-    return scraped_data
-    
-#########################################################################
-# NASA Mars News
-#########################################################################
-# Scrape the Mars News Site and collect the latest News Title and Paragraph Text. Assign the text to variables that you can reference later.
-def mars_news(browser):    
-    url = "https://redplanetscience.com/"
+    # Scrape and store results in a dictionary
+    data = {
+        "news_title": news_title,
+        "news_paragraph": news_paragraph,
+        "facts": mars_facts(),
+        "featured_image": featured_image(browser),
+        "hemispheres": hemispheres(browser),
+    }
+    # Return data from scrape
+    return data
+
+# Scrape mars news site
+def mars_news(browser):
+    url = 'https://redplanetscience.com/'
     browser.visit(url)
-    # Create BeautifulSoup object; parse with 'html.parser
     html = browser.html
-    soup = bs(html, "html.parser")
-   
-    # Get the title and content text in the latest news
-    news_title = soup.find('div', class_ ='content_title').get_text()
-    print(f"News Title: {news_title}")
-    
-    news_p = soup.find('div', class_ ='article_teaser_body').get_text()
-    print(f"News Paragraph: {news_p}")
-    news_data_output = [news_title, news_p]
-    
-    return news_data_output
+    news_soup = soup(html, 'html.parser')
 
-########################################################################
-# JPL Mars Space Images - Featured Image
-########################################################################
-# Visit the following URL
-def mars_image(browser):
-    url = "https://spaceimages-mars.com/"
+    # Find news title and paragraph and save in a variable 
+    slide_elem = news_soup.select_one('div.list_text')
+    news_title = slide_elem.find("div", class_="content_title").get_text()
+    news_p = slide_elem.find("div", class_="article_teaser_body").get_text()
+    # Return data
+    return news_title, news_p
+
+# Scrape mars space images
+def featured_image(browser):
+    # Visit URL
+    url = 'https://spaceimages-mars.com'
     browser.visit(url)
+    # Click the full image button
+    full_image_elem = browser.find_by_tag('button')[1]
+    full_image_elem.click()
 
-    # Use splinter to navigate the site and find the image url for the current Featured Mars Image and 
-    # Assign the url string to a variable called featured_image_url.
+    # Parsing html with soup
     html = browser.html
-    soup = bs(html, 'html.parser')
-    image = soup.select_one("img.headerimage").get("src")
-    featured_image_url = "https://spaceimages-mars.com/" + image
-    print(f"url: {featured_image_url}")
-    return featured_image_url
+    img_soup = soup(html, 'html.parser')
+    img_url_rel = img_soup.find('img', class_='fancybox-image').get('src')
+    img_url = f'https://spaceimages-mars.com/{img_url_rel}'
+    # Return the image
+    return img_url
 
-#######################################################################
-# Mars Facts
-#######################################################################
-# Use Pandas to scrape the table containing facts about the planet
+
 def mars_facts():
-    url = 'https://galaxyfacts-mars.com/'
-    tables_facts = pd.read_html(url)
-    tables_facts
 
-# Convert data to dataframe
-    facts_df = tables_facts[0]
-    facts_df.columns = ['Description', 'Mars', 'Earth']
-    facts_df
+     # Scrape mars facts html into a dataframe 
+    df = pd.read_html("https://galaxyfacts-mars.com")[0]
+    # Set columns of dataframe
+    df.columns = ["Description", "Mars", "Earth"]
+    # Return dataframe as html 
+    return df.to_html(classes="table table-striped")
 
-# Convert the data to a HTML table string
-    html = facts_df.to_html()
-    return html
 
-######################################################################
-# Mars Hemispheres
-######################################################################
-# Visit Mars Hemispheres url to obtain high resolution images for each of Mar's hemispheres.
+def hemispheres(browser):
+    url = 'https://marshemispheres.com/'
+    browser.visit(url + 'index.html')
 
-# Set the chromedriver path
-def mars_hemis_data(browser):
-    hemis_url = "https://marshemispheres.com/"
-    browser.visit(hemis_url)
+    # Click and return href
+    hemisphere_url = []
+    for i in range(4):
+        browser.find_by_css("a.product-item img")[i].click()
+        hemi_data = scrape_hemisphere(browser.html)
+        hemi_data['img_url'] = url + hemi_data['img_url']
+        # Add hemisphere to list
+        hemisphere_url.append(hemi_data)
+        # Return to browser
+        browser.back()
+    # Return list 
+    return hemisphere_url
 
-# Collect the urls by clicking each of the links to the hemispheres
-# Retrieve the titles and urls and append to list
-    html = browser.html
-    soup = bs(html, 'html.parser')
-    hemisphere_list = []
-    category = soup.find("div", class_ = "result-list" )
-    hemispheres =category.find_all("div", class_="item")
 
-    for hemisphere in hemispheres:
-        title = hemisphere.find('h3').text
-        title = title.strip("Enhanced")
-        end_link = hemisphere.find("a")["href"]
-        image_link = "https://marshemispheres.com/" + end_link   
-        browser.visit(image_link)
-        hemisphere_html = browser.html
-        soup = bs(hemisphere_html, 'html.parser')
-        downloads = soup.find("div", class_="downloads")
-        image_url = downloads.find("a")["href"]
-        hemisphere_list.append({"title": title, "img_url": "https://marshemispheres.com/" + image_url})
-    return hemisphere_list  
+def scrape_hemisphere(html_text):
+    # parsing html with soup
+    hemisphere_text = soup(html_text, "html.parser")
+
+
+    title_text = hemisphere_text.find("h2", class_="title").get_text()
+    image_text= hemisphere_text.find("a", text="Sample").get("href")
+
+    hemispheres = {
+        "title": title_text,
+        "img_url": image_text
+    }
+
+    return hemispheres
+
+
+if __name__ == "__main__":
+
+    # Print scraped data
+    print(scrape())
